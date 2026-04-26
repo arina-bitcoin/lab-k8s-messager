@@ -1,9 +1,15 @@
-const API = '/api/v1';
-let me = null; // {id, name}
-let partner = null; // {id, name}
+const API = (window.__BFF_URL__ || '') + '/api/v1';
+let me = null;
+let partner = null;
 let lastMsgID = '';
 let pollController = null;
 let pendingFile = null;
+
+// voice recording state
+let mediaRecorder = null;
+let recChunks = [];
+let recTimerInterval = null;
+let recSeconds = 0;
 
 const $ = id => document.getElementById(id);
 
@@ -121,22 +127,33 @@ function renderConversations(convs) {
 
 function lastMsgPreview(msg) {
   if (!msg) return '';
-  if (msg.file_name) return (isImageFile(msg.file_name) ? '🖼 ' : '📎 ') + msg.file_name;
+  if (msg.file_name) {
+    if (isAudioFile(msg.file_name)) return '🎙 Голосовое сообщение';
+    if (isImageFile(msg.file_name)) return '🖼 ' + msg.file_name;
+    return '📎 ' + msg.file_name;
+  }
   return msg.text || '';
 }
 
 // --- Chat ---
 function openChat(user) {
   partner = user;
-  $('chat-header').innerHTML = esc(user.name) + ' <span id="chat-partner-id" style="color:#888;font-size:.85rem">ID: ' + user.id.slice(0, 8) + '...</span>';
+  $('chat-title').textContent = user.name;
+  $('chat-partner-id').textContent = 'ID: ' + user.id.slice(0, 8) + '...';
   $('messages').innerHTML = '';
   lastMsgID = '';
-  // mark active in both conversations list and search results
   document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll(`.user-item[data-partner-id="${user.id}"]`).forEach(el => el.classList.add('active'));
+  $('app').classList.add('chat-open');
   loadMessages();
   startPolling();
 }
+
+$('back-btn').addEventListener('click', () => {
+  $('app').classList.remove('chat-open');
+  if (pollController) { pollController.abort(); pollController = null; }
+  partner = null;
+});
 
 async function loadMessages() {
   if (!partner) return;
@@ -162,6 +179,8 @@ function appendMessage(msg) {
     const name = msg.file_name || '';
     if (isImageFile(name)) {
       content += `<img src="${url}" data-name="${esc(name)}" onerror="this.style.display='none'" title="Нажмите для просмотра" />`;
+    } else if (isAudioFile(name)) {
+      content += `<audio controls src="${url}" preload="metadata"></audio>`;
     } else {
       content += `<a class="file-link" href="${url}" download="${esc(name)}" target="_blank">${fileIcon(name)} ${esc(name || 'Файл')}</a>`;
     }
@@ -259,6 +278,104 @@ window.deleteMsg = async function(id) {
   document.querySelector(`.msg[data-id="${id}"]`)?.remove();
 };
 
+// --- Voice recording ---
+$('voice-btn').addEventListener('click', toggleRecording);
+$('rec-cancel').addEventListener('click', cancelRecording);
+
+async function toggleRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  if (!partner) return;
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    alert('Нет доступа к микрофону');
+    return;
+  }
+
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')
+      ? 'audio/ogg;codecs=opus'
+      : 'audio/webm';
+
+  recChunks = [];
+  mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+  mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recChunks.push(e.data); };
+  mediaRecorder.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    stopRecordingUI();
+    const ext = mimeType.includes('ogg') ? 'ogg' : 'webm';
+    const blob = new Blob(recChunks, { type: mimeType });
+    sendVoiceMessage(blob, ext);
+  };
+
+  mediaRecorder.start(200);
+  startRecordingUI();
+}
+
+function startRecordingUI() {
+  $('voice-btn').classList.add('recording');
+  $('voice-btn').title = 'Остановить запись';
+  $('recording-bar').classList.add('visible');
+  recSeconds = 0;
+  updateRecTimer();
+  recTimerInterval = setInterval(() => { recSeconds++; updateRecTimer(); }, 1000);
+}
+
+function stopRecordingUI() {
+  $('voice-btn').classList.remove('recording');
+  $('voice-btn').title = 'Записать голосовое';
+  $('recording-bar').classList.remove('visible');
+  clearInterval(recTimerInterval);
+}
+
+function cancelRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.onstop = null;
+    mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    mediaRecorder.stop();
+  }
+  recChunks = [];
+  stopRecordingUI();
+}
+
+function updateRecTimer() {
+  const m = Math.floor(recSeconds / 60);
+  const s = String(recSeconds % 60).padStart(2, '0');
+  $('rec-timer').textContent = `${m}:${s}`;
+}
+
+async function sendVoiceMessage(blob, ext) {
+  if (!partner || blob.size < 500) return;
+  const now = new Date();
+  const fname = `voice_${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}.${ext}`;
+  const file = new File([blob], fname, { type: blob.type });
+
+  const fd = new FormData();
+  fd.append('file', file);
+  const r = await fetch(`${API}/files`, { method: 'POST', body: fd });
+  if (!r.ok) { alert('Ошибка загрузки аудио'); return; }
+  const data = await r.json();
+
+  const resp = await fetch(`${API}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sender_id: me.id, receiver_id: partner.id, text: '', file_id: data.id, file_name: fname })
+  });
+  if (resp.ok) {
+    const msg = await resp.json();
+    appendMessage(msg);
+    lastMsgID = msg.id;
+    scrollToBottom();
+    loadConversations();
+  }
+}
+
 // --- Long polling ---
 function startPolling() {
   if (pollController) pollController.abort();
@@ -321,6 +438,10 @@ function esc(str) {
 
 function isImageFile(name) {
   return /\.(png|jpg|jpeg|gif|webp|bmp|svg)$/i.test(name || '');
+}
+
+function isAudioFile(name) {
+  return /\.(webm|ogg|mp3|wav|m4a|aac|flac)$/i.test(name || '');
 }
 
 function fileIcon(name) {

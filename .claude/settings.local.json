@@ -11,7 +11,12 @@
       "Bash(echo \"exit: $?\")",
       "Bash(docker build *)",
       "Bash(docker compose *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(docker info *)",
+      "Bash(docker system *)",
+      "Bash(docker buildx *)",
+      "Bash(docker manifest *)",
+      "Bash(docker run *)"
     ]
   }
 }
