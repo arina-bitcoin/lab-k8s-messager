@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-users
+  namespace: messager
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate-users
+          image: ghcr.io/kukymbr/goose-docker:latest
+          command: ["goose"]
+          args:
+            - "-dir"
+            - "/migrations"
+            - "postgres"
+            - "host=postgres user=postgres password=postgres dbname=messager_users sslmode=disable"
+            - "up"
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: users-migrations-cm

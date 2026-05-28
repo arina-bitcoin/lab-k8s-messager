@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-messages
+  namespace: messager
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate-messages
+          image: ghcr.io/kukymbr/goose-docker:latest
+          command: ["goose"]
+          args:
+            - "-dir"
+            - "/migrations"
+            - "postgres"
+            - "$(MSG_DB_DSN)"
+            - "up"
+          env:
+            - name: MSG_DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: messager-db-secret
+                  key: MSG_DB_DSN
+          volumeMounts:
+            - name: migrations
+              mountPath: /migrations
+      volumes:
+        - name: migrations
+          configMap:
+            name: messages-migrations-cm
