@@ -10,13 +10,16 @@ spec:
       containers:
         - name: migrate-users
           image: ghcr.io/kukymbr/goose-docker:latest
-          command: ["goose"]
-          args:
-            - "-dir"
-            - "/migrations"
-            - "postgres"
-            - "host=postgres user=postgres password=postgres dbname=messager_users sslmode=disable"
-            - "up"
+          env:
+            - name: GOOSE_DRIVER
+              value: postgres
+            - name: GOOSE_DBSTRING
+              valueFrom:
+                secretKeyRef:
+                  name: messager-db-secret
+                  key: USER_DB_DSN
+            - name: GOOSE_MIGRATION_DIR
+              value: /migrations
           volumeMounts:
             - name: migrations
               mountPath: /migrations
