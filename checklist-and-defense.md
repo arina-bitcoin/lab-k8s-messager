@@ -66,7 +66,7 @@ kubectl apply -f argocd/application.yaml
 kustomize build k8s/overlays/dev   # должен выдать валидный YAML
 kustomize build k8s/overlays/prod  # должен выдать валидный YAML
 ```
-✅ Статус: проверено
+Статус: проверено
 
 ### 2. Все pods в состоянии Running/Completed
 ```bash
@@ -83,19 +83,19 @@ minio                 Running
 migrate-users         Completed
 migrate-messages      Completed
 ```
-✅ Статус: проверено
+Статус: проверено
 
 ### 3. Frontend доступен снаружи
 ```bash
 curl -I http://dev.messager.local
 ```
-✅ Статус: доступен через Ingress (nginx / traefik)
+Статус: доступен через Ingress (nginx / traefik)
 
 ### 4. API-цепочка frontend → bff → services работает
 ```bash
 curl http://dev.messager.local/api/health
 ```
-✅ Статус: проверено
+Статус: проверено
 
 ### 5. Загрузка файлов через S3 CSI
 - message-service монтирует `/app/uploads` через PVC `message-uploads-pvc`
@@ -119,13 +119,13 @@ kubectl describe pod <pod-name> -n messager | grep -A 10 "Node-Selectors\|Affini
 | frontend, bff, user-service | workload=app |
 | message-service | workload=app (hard) + disk=fast (soft) |
 
-✅ Статус: проверено в prod overlay
+Статус: проверено в prod overlay
 
 ### 7. Argo CD показывает Synced/Healthy
 ```bash
 kubectl get applications -n argocd
 ```
-✅ Статус: автосинхронизация включена (automated + prune + selfHeal)
+Статус: автосинхронизация включена (automated + prune + selfHeal)
 
 ---
 
